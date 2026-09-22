@@ -1,0 +1,10 @@
+{
+ "name":"waix-node","version":"0.1.0","description":"WAIX WhatsApp API v1 client for Node.js: messages, templates, OTP and signed webhooks",
+ "license":"MIT","type":"module","main":"./index.cjs","module":"./index.js","types":"./index.d.ts",
+ "exports":{".":{"types":"./index.d.ts","import":"./index.js","require":"./index.cjs"}},
+ "files":["index.js","index.cjs","index.d.ts","README.md","LICENSE"],
+ "engines":{"node":">=20"},"scripts":{"test":"node --test","prepublishOnly":"npm test"},
+ "repository":{"type":"git","url":"https://github.com/ivanpukhov/waix-node.git"},
+ "homepage":"https://waix.kz/integrations/nodejs","bugs":"https://github.com/ivanpukhov/waix-node/issues",
+ "keywords":["waix","whatsapp","whatsapp-api","otp","kazakhstan"],"publishConfig":{"access":"public"}
+}
