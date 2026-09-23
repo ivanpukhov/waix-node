@@ -9,7 +9,7 @@ Node.js SDK for WAIX WhatsApp Business API. Node.js 20+, no runtime dependencies
 Install from npm:
 
 ```sh
-npm install waix-node
+npm install github:ivanpukhov/waix-node#v0.2.0
 ```
 
 ## Send an approved template
@@ -89,3 +89,7 @@ Verify the signature against the **original raw request bytes before JSON parsin
 This is the WAIX API v1 client, not the Meta Graph API SDK. SDK versions use SemVer. The client never logs keys, message bodies or OTP codes. If you add application logging, redact those values and retain request IDs for troubleshooting.
 
 License: MIT.
+
+## 0.2.0 resilience update
+
+The client now bounds JSON responses (2 MiB by default), preserves HTTP status and retry headers even for non-JSON proxy errors, rejects invalid query values and provides lazy `messages.iterate` pagination with loop detection. OTP verification requires a six-digit string, including leading zeros. No automatic send retries. See the Russian README for language-specific options and safe error logging examples.

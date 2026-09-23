@@ -1,6 +1,6 @@
 {
   "name": "waix-node",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "WAIX WhatsApp API v1 client for Node.js: messages, templates, OTP and signed webhooks",
   "license": "MIT",
   "type": "module",
@@ -20,7 +20,8 @@
     "index.d.ts",
     "README.md",
     "LICENSE",
-    "README.en.md"
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"

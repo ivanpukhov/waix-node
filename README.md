@@ -7,10 +7,10 @@
 ## Установка
 
 ```sh
-npm install waix-node
+npm install github:ivanpukhov/waix-node#v0.2.0
 ```
 
-[Пакет npm](https://www.npmjs.com/package/waix-node) · [Исходный код](https://github.com/ivanpukhov/waix-node)
+[Исходный код](https://github.com/ivanpukhov/waix-node)
 
 ## Перед первым запросом
 
@@ -113,3 +113,55 @@ HTTP `202` означает, что сообщение поставлено в �
 [Документация WAIX](https://waix.kz/docs) · [Поддержка](https://waix.kz/contacts) · [Тарифы](https://waix.kz/pricing).
 
 SDK работает с API v1 WAIX. Это не клиент Meta Graph API. Версии SDK следуют SemVer. Лицензия — MIT.
+
+## Поведение версии 0.2.0
+
+SDK не повторяет запрос за вас. HTTP-ошибка от прокси остаётся HTTP-ошибкой, даже если вместо JSON пришёл HTML: сохраняются статус, request ID и `Retry-After`. Перенаправления запрещены. Некорректный успешный ответ вызывает `INVALID_RESPONSE`; ответ больше установленного лимита — `RESPONSE_TOO_LARGE`. Лимит по умолчанию — 2 МиБ, его можно увеличить до 16 МиБ.
+
+| Ситуация | Что делать |
+| --- | --- |
+| `400` / `422` | Исправить поля, формат телефона, шаблон или код OTP. |
+| `401` / `403` | Проверить ключ, права и принадлежность подключения/OTP-проекта. |
+| `409` | Проверить конфликт ключа идемпотентности: под одним ключом нельзя менять тело. |
+| `429` | Отложить запрос на срок из `Retry-After`, сохранив прежний ключ и тело. |
+| `5xx`, `TIMEOUT`, `TRANSPORT_ERROR` | Результат отправки может быть неизвестен. Сначала проверить сохранённый ID; если ID не получен, повторять прежний запрос с прежним ключом через ограниченную очередь повторов. |
+| `INVALID_RESPONSE` / `RESPONSE_TOO_LARGE` | Проверить прокси, адрес API и размер страницы. Не создавать новую отправку. |
+| `OTP_INVALID` | Код неверен, истёк или уже использован. Не выдавать сессию приложения. |
+
+`body` исключения доступен для диагностики, но может содержать данные клиента. В журнал записывайте только безопасные метаданные из примера ниже. Не сериализуйте целиком ответ sandbox OTP.
+
+### Обновление с 0.1.x
+
+Имена существующих методов сохранены. У `otp.verify` код должен быть строкой из шести цифр: `'012345'`, а не число. Значения query — только строки, конечные числа и boolean; сложные объекты нужно разобрать на параметры. Ошибки HTML от прокси теперь имеют `API_ERROR`, а перенаправления — `REDIRECT_DISALLOWED`. При обработке ошибок ориентируйтесь также на HTTP-статус.
+
+### Пагинация, отмена и диагностика
+
+```js
+const waix = new Waix(process.env.WAIX_API_KEY, { timeout: 30000, maxResponseBytes: 2097152 });
+const controller = new AbortController();
+for await (const message of waix.messages.iterate(
+  { connection_id: process.env.WAIX_CONNECTION_ID, limit: 100 },
+  { maxPages: 100, signal: controller.signal },
+)) {
+  // Обрабатывайте по одному сообщению, не собирая весь журнал в памяти.
+  await saveStatus(message.id, message.status);
+}
+// Для остановки из другого обработчика: controller.abort().
+// Ошибка отмены имеет code ABORTED. Отмена ожидания не отменяет отправку в WAIX.
+```
+
+`iterate` лениво запрашивает страницы, переносит оба курсора и исходные фильтры. Повторный курсор вызывает `INVALID_PAGINATION`, достижение заданного предела — `PAGINATION_LIMIT`. По умолчанию предел — 1000 страниц. При завершении цикла новые страницы не загружаются.
+
+```js
+try {
+  const result = await waix.messages.get(savedMessageId);
+  await saveStatus(result.data.id, result.data.status);
+} catch (error) {
+  if (!(error instanceof WaixError)) throw error;
+  console.error(error.toJSON());
+  const delayMs = error.retryDelayMs(); // число миллисекунд или null
+  // Решение о повторе принимает ваша очередь; delayMs сам ничего не запускает.
+}
+```
+
+`request` также принимает `signal`. Таймаут охватывает получение ответа, включая его тело. Для внедрённого `fetch` требуется совместимость с Web Fetch API (`Response`, потоки, `AbortSignal`).

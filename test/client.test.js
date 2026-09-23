@@ -151,3 +151,150 @@ test("real HTTP transport never forwards authorization to redirects", async (t) 
   );
   assert.equal(redirects, 0);
 });
+
+test("proxy HTML, malformed success, size limits and safe error serialization", async () => {
+  for (const [status, raw, code] of [
+    [429, "<html>wait</html>", "API_ERROR"],
+    [503, "unavailable", "API_ERROR"],
+    [302, "", "REDIRECT_DISALLOWED"],
+    [200, "null", "INVALID_RESPONSE"],
+    [200, "[]", "INVALID_RESPONSE"],
+    [200, "bad", "INVALID_RESPONSE"],
+    [200, "x".repeat(1025), "RESPONSE_TOO_LARGE"],
+  ]) {
+    let calls = 0;
+    const api = new Waix("fixture", {
+      maxResponseBytes: 1024,
+      fetch: async () => {
+        calls++;
+        return new Response(raw, {
+          status,
+          headers: { "Retry-After": "7", "X-Request-Id": "req-1" },
+        });
+      },
+    });
+    await assert.rejects(
+      () => api.connections.list(),
+      (e) =>
+        e.code === code &&
+        e.status === status &&
+        e.retryAfter === "7" &&
+        e.requestId === "req-1",
+    );
+    assert.equal(calls, 1);
+  }
+  const error = new WaixError("sensitive", {
+    body: { test_code: "123456" },
+    retryAfter: "60",
+  });
+  assert.doesNotMatch(JSON.stringify(error), /sensitive|123456|test_code/);
+  assert.equal(error.retryDelayMs(), 60000);
+  assert.equal(
+    new WaixError("wait", {
+      retryAfter: "Wed, 23 Sep 2026 00:00:00 GMT",
+    }).retryDelayMs(Date.parse("2026-09-22T23:59:00Z")),
+    60000,
+  );
+});
+test("pagination is lazy, retains filters and stops repeated cursors", async () => {
+  const calls = [];
+  const api = new Waix("fixture", {
+    fetch: async (url) => {
+      calls.push(url);
+      return Response.json({
+        data: [{ id: String(calls.length) }],
+        pagination:
+          calls.length === 1
+            ? { next_before: "2026-01-01T00:00:00Z", next_before_id: key }
+            : { next_before: null, next_before_id: null },
+      });
+    },
+  });
+  const iterable = api.messages.iterate({ connection_id: key, limit: 1 });
+  assert.equal(calls.length, 0);
+  const values = [];
+  for await (const item of iterable) values.push(item.id);
+  assert.deepEqual(values, ["1", "2"]);
+  assert.equal(calls[1].searchParams.get("before_id"), key);
+  assert.equal(calls[1].searchParams.get("connection_id"), key);
+  let repeated = 0;
+  const bad = new Waix("fixture", {
+    fetch: async () => {
+      repeated++;
+      return Response.json({
+        data: [],
+        pagination: { next_before: "same", next_before_id: key },
+      });
+    },
+  });
+  await assert.rejects(
+    async () => {
+      for await (const _ of bad.messages.iterate()) {
+      }
+    },
+    (e) => e.code === "INVALID_PAGINATION",
+  );
+  assert.equal(repeated, 2);
+});
+test("invalid inputs never call transport; OTP preserves leading zero", async () => {
+  let calls = 0;
+  const api = new Waix("fixture", {
+    fetch: async () => {
+      calls++;
+      return Response.json({ data: {} });
+    },
+  });
+  for (const args of [
+    ["TRACE", "/messages"],
+    ["GET", "/messages", { query: { bad: [] } }],
+    ["GET", "/messages", { query: { bad: NaN } }],
+    ["POST", "/messages", { body: { bad: Infinity } }],
+    ["GET", "/messages", { idempotencyKey: "" }],
+    ["GET", "/messages", { body: {} }],
+  ])
+    await assert.rejects(() => api.request(...args), TypeError);
+  assert.throws(() => api.otp.verify(key, 123456), TypeError);
+  assert.throws(() => api.otp.verify(key, "12345"), TypeError);
+  assert.equal(calls, 0);
+  await api.otp.verify(key, "012345");
+  assert.equal(calls, 1);
+});
+test("real transport timeout and abort, including a stalled response body", async (t) => {
+  let requests = 0;
+  const server = createServer((req, res) => {
+    requests++;
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "x-request-id": "req-stall",
+    });
+    res.write('{"data":');
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  const api = new Waix("fixture", {
+    baseUrl: `http://127.0.0.1:${server.address().port}/api/v1`,
+    timeout: 100,
+  });
+  await assert.rejects(
+    () => api.connections.list(),
+    (e) => e.code === "TIMEOUT" && e.requestId === "req-stall",
+  );
+  assert.equal(requests, 1);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => api.request("GET", "/connections", { signal: controller.signal }),
+    (e) => e.code === "ABORTED",
+  );
+});
+
+test('User-Agent version matches package metadata', async () => {
+  const {readFile}=await import('node:fs/promises');
+  const metadata=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+  let agent;
+  const api=new Waix('fixture',{fetch:async(_url,options)=>{agent=options.headers['User-Agent'];return Response.json({data:{}});}});
+  await api.connections.list();assert.equal(agent,`waix-node/${metadata.version}`);
+});
