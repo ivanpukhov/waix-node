@@ -7,10 +7,10 @@
 ## Установка
 
 ```sh
-npm install github:ivanpukhov/waix-node#v0.2.0
+npm install waix-node
 ```
 
-[Исходный код](https://github.com/ivanpukhov/waix-node)
+[Пакет npm](https://www.npmjs.com/package/waix-node) · [Исходный код](https://github.com/ivanpukhov/waix-node)
 
 ## Перед первым запросом
 

@@ -9,7 +9,7 @@ Node.js SDK for WAIX WhatsApp Business API. Node.js 20+, no runtime dependencies
 Install from npm:
 
 ```sh
-npm install github:ivanpukhov/waix-node#v0.2.0
+npm install waix-node
 ```
 
 ## Send an approved template
